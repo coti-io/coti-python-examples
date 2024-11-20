@@ -12,13 +12,13 @@ The contracts are of Solidity and can be compiled and deployed using popular dev
 
 #### Important Links:
 
-[Docs](https://docs.coti.io) | [Devnet Explorer](https://explorer-devnet.coti.io) | [Discord](https://discord.gg/cuCykh8P4m) | [Faucet](https://faucet.coti.io)
+[Docs](https://docs.coti.io) | [Testnet Explorer](https://testnet.cotiscan.io) | [Discord](https://discord.gg/cuCykh8P4m) | [Faucet](https://faucet.coti.io)
 
 Interact with the network using any of the following:
 
 1. [Python SDK](https://github.com/coti-io/coti-sdk-python) | [Python SDK Examples](https://github.com/coti-io/coti-sdk-python-examples)
-2. [Typescript SDK](https://github.com/coti-io/coti-sdk-typescript) | [Typescript SDK Examples](https://github.com/coti-io/coti-sdk-typescript-examples)
-3. [Hardhat Dev Environment](https://github.com/coti-io/confidentiality-contracts)
+2. [Typescript SDK](https://github.com/coti-io/coti-sdk-typescript) | [Typescript Examples](https://github.com/coti-io/coti-typescript-examples)
+3. [COTI Contracts](https://github.com/coti-io/coti-contracts) | [COTI Contracts Examples](https://github.com/coti-io/coti-contracts-examples)
 
 The following contracts are available in each of the packages:
 
@@ -77,13 +77,13 @@ The COTI faucet provides devnet/testnet funds for developers. To request devnet/
 2. Send a message to the bot in the following format:
 
 ```
-devnet <your_eoa_address> 
+testnet <your_eoa_address> 
 ```
 
 For Example:
 
 ```
-devnet 0x71C7656EC7ab88b098defB751B7401B5f6d8976F
+testnet 0x71C7656EC7ab88b098defB751B7401B5f6d8976F
 ```
 
 ## Python SDK Usage
@@ -153,7 +153,7 @@ The following process will help you deploy the [**`native_transfer.py`**](https:
     ```bash
     So you dont have an account yet, dont worry... lets create one right now!
     Creation done!
-    provider:  https://devnet.coti.io
+    provider:  https://testnet.coti.io
     chain-id:  13068200
     latest block:  0xc9ec7259bad015c46a0bef9b0988cac70a62e2abaed7459b5265e425bc5cecb8
     account address: 0x0287a7A5bD5f4802D4A6048730a11B2713A16bd4
@@ -166,7 +166,7 @@ The following process will help you deploy the [**`native_transfer.py`**](https:
         validate_minimum_balance(web3)  # validate minimum balance
       File "/Users/user/projects/coti-sdk-python/examples/basics/utils.py", line 69, in validate_minimum_balance
         raise Exception(
-    Exception: Not enough balance!, head to discord faucet and getsome...https://discord.com/channels/386571547508473876/1235539223595978752 , ask the BOT:devnet 0x0287a7A5bD5f4802D4A6048730a11B2713A16bd4
+    Exception: Not enough balance!, head to discord faucet and getsome...https://discord.com/channels/386571547508473876/1235539223595978752 , ask the BOT:testnet 0x0287a7A5bD5f4802D4A6048730a11B2713A16bd4
 
     Process finished with exit code 1
 
@@ -175,14 +175,14 @@ The following process will help you deploy the [**`native_transfer.py`**](https:
     \
     It is normal to receive the exception `Not enough balance!` on the first run. This will be resolved once the account is funded.
 
-6. Head to the faucet at [**https://faucet.coti.io**](https://faucet.coti.io) to get devnet funds. \
+6. Head to the faucet at [**https://faucet.coti.io**](https://faucet.coti.io) to get testnet funds. \
    Send the following message to the BOT using your newly created `account address`:\
    \
-   `devnet <account address>`\
+   `testnet <account address>`\
    \
    The bot will reply with the message:\
    \
-   `<username> faucet transferred 5 COTIv2 (devnet)` \
+   `<username> faucet transferred 5 COTIv2 (testnet)` \
    &#x20;
 7.  Run the `native_transfer.py` script once more
 
@@ -194,7 +194,7 @@ The following process will help you deploy the [**`native_transfer.py`**](https:
     The script will output as following:
 
     ```bash
-    provider:  https://devnet.coti.io
+    provider:  https://testnet.coti.io
     chain-id:  13068200
     latest block:  0x4f5b68d9ef7debc0f86b4fc4c50a81020c8de315d65b4ce12b4372ebedef4f95
     account address: 0x0287a7A5bD5f4802D4A6048730a11B2713A16bd4
@@ -226,7 +226,7 @@ This is a mandatory script for any operation executed in any contract requiring 
 
 
     ```bash
-    provider:  https://devnet.coti.io
+    provider:  https://testnet.coti.io
     chain-id:  13068200
     latest block:  0x31f5e889a74777e514abcf83ece21839d96c465419b66b6b977f65d052062c2a
     account address: 0x0287a7A5bD5f4802D4A6048730a11B2713A16bd4
@@ -262,7 +262,7 @@ This contract can be used in order to browse and get a feel of the COTI network.
 
 
     ```bash
-    provider:  https://devnet.coti.io/rpc
+    provider:  https://testnet.coti.io/rpc
     chain-id:  13068200
     latest block:  0x75a2f9d10db48fdc53f14d9ce565420e680b06231cd34e3c194f14fbd0c5f999
     account address: 0xB101fbd6938AaE2e472E247e36555528d7ff4A89
@@ -282,11 +282,11 @@ This contract can be used in order to browse and get a feel of the COTI network.
     ```
 
     \
-    You can now view the contract on devnet explorer using the following convention:\
-    `https://explorer-devnet.coti.io/address/<contract deployment address>` \
+    You can now view the contract on testnet explorer using the following convention:\
+    `https://testnet.cotiscan.io/address/<contract deployment address>` \
     \
     In our case: \
-    [**https://explorer-devnet.coti.io/contract/0x91af1cd8bbc3b7dccd5ff19f522cd9a49067f928**](https://explorer-devnet.coti.io/contract/0x91af1cd8bbc3b7dccd5ff19f522cd9a49067f928)
+    [**https://testnet.cotiscan.io/contract/0x91af1cd8bbc3b7dccd5ff19f522cd9a49067f928**](https://testnet.cotiscan.io/contract/0x91af1cd8bbc3b7dccd5ff19f522cd9a49067f928)
 
 Let's note the following facts about the contract and the script:
 
