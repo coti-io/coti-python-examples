@@ -14,7 +14,7 @@ codecov==2.1.13
 colorama==0.4.6
 coloredlogs==15.0.1
 colour-runner==0.1.1
-coti-contracts-examples==1.0.0
+coti-contracts-examples==1.0.2
 coti-sdk==1.0.2
 coverage==7.6.1
 cryptography==3.4.8
