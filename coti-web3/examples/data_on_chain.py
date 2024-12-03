@@ -1,41 +1,57 @@
 import importlib.resources
 import json
-
-from eth_abi.abi import decode
-from examples.onboard.onboard_account import *
 from math import ceil
+
+from coti.crypto_utils import generate_aes_key
+from dotenv import load_dotenv
+from eth_abi.abi import decode
+from eth_account import Account
+from eth_utils import decode_hex
+from web3 import Web3
+from web3.utils.coti import CotiNetwork, generate_or_recover_aes, init_web3
+
+from native_transfer import transfer_native
+from utils import (
+    exec_func_via_transaction,
+    get_account_encryption_key,
+    get_account_private_key,
+    get_contract,
+    make_sure_tx_didnt_fail,
+    validate_minimum_balance
+)
 
 # script demonstrates basic network capabilities on encrypt/decrypt of values saved in a contract
 def main():
-    account_hex_encryption_key, eoa, eoa_private_key, web3 = init()
+    eoa, web3 = init()
 
     gas_limit = 10000000
     gas_price_gwei = 30
 
-    tx_params = {'web3': web3, 'gas_limit': gas_limit, 'gas_price_gwei': gas_price_gwei,
-                 'eoa_private_key': eoa_private_key}
+    tx_params = {'gas_limit': gas_limit, 'gas_price_gwei': gas_price_gwei}
     deployed_contract = deploy(web3, eoa, tx_params)
 
     basic_get_value(deployed_contract, eoa, web3)
-    a = basic_clear_encrypt_decrypt(account_hex_encryption_key, deployed_contract, eoa, tx_params)
+    a = basic_clear_encrypt_decrypt(web3, eoa, deployed_contract, tx_params)
 
-    some_other_aes_key = generate_aes_key()
-    basic_decryption_failure(some_other_aes_key, deployed_contract, eoa, tx_params)
+    original_aes_key = eoa.aes_key
+    some_other_aes_key = generate_aes_key().hex()
+    eoa.set_aes_key(some_other_aes_key)
 
-    network_decryption_failure(account_hex_encryption_key, deployed_contract, eoa, tx_params)
+    basic_decryption_failure(web3, eoa, deployed_contract, tx_params)
+    eoa.set_aes_key(original_aes_key)
 
-    b = basic_encrypted_encrypt_decrypt(account_hex_encryption_key, deployed_contract, eoa,
-                                        account_hex_encryption_key, tx_params)
+    network_decryption_failure(web3, eoa, deployed_contract, tx_params)
 
-    basic_string_encrypt_decrypt(account_hex_encryption_key, deployed_contract, eoa,
-                                 account_hex_encryption_key, tx_params)
+    b = basic_encrypted_encrypt_decrypt(web3, eoa, deployed_contract, tx_params)
 
-    basic_add_computation(deployed_contract, tx_params, eoa, account_hex_encryption_key, a + b)
-    compute_add_with_different_account(eoa_private_key, gas_limit, gas_price_gwei, web3, deployed_contract, a + b)
-    make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params)
+    basic_string_encrypt_decrypt(web3, eoa, deployed_contract, tx_params)
+
+    basic_add_computation(web3, eoa, deployed_contract, tx_params, a + b)
+    compute_add_with_different_account(web3, eoa, gas_limit, gas_price_gwei, deployed_contract, a + b)
+    make_sure_data_is_safe(web3, eoa, deployed_contract, tx_params)
 
 
-def make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params):
+def make_sure_data_is_safe(web3, eoa, deployed_contract, tx_params):
     some_other_contract_keeping_data = {
         "contract_name": "DataOnChain",
         "address": "0xbC39Df62e41F69300a413d4F3a262737A1109FC3",
@@ -46,10 +62,10 @@ def make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params):
             "type": "constructor"
             },
             {
-            "anonymous": false,
+            "anonymous": False,
             "inputs": [
                 {
-                "indexed": true,
+                "indexed": True,
                 "internalType": "address",
                 "name": "_from",
                 "type": "address"
@@ -62,7 +78,7 @@ def make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params):
                     "type": "uint256[]"
                     }
                 ],
-                "indexed": false,
+                "indexed": False,
                 "internalType": "struct ctString",
                 "name": "ctUserSomeEncryptedStringValue",
                 "type": "tuple"
@@ -72,16 +88,16 @@ def make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params):
             "type": "event"
             },
             {
-            "anonymous": false,
+            "anonymous": False,
             "inputs": [
                 {
-                "indexed": true,
+                "indexed": True,
                 "internalType": "address",
                 "name": "_from",
                 "type": "address"
                 },
                 {
-                "indexed": false,
+                "indexed": False,
                 "internalType": "ctUint64",
                 "name": "ctUserSomeEncryptedValue",
                 "type": "uint256"
@@ -302,13 +318,13 @@ def make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params):
 
     old_network_encrypted_data = get_network_value(deployed_contract, eoa)
     network_encrypted_data = get_network_value(some_other_deployed_contract, eoa)
-    save_network_encrypted_in_contract(deployed_contract, tx_params, network_encrypted_data)
+    save_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params, network_encrypted_data)
     new_network_encrypted_data = get_network_value(deployed_contract, eoa)
     # assert that previous data and new one are not the same, meaning it was really changed
     assert old_network_encrypted_data != new_network_encrypted_data
     # assert that new data is same as the one we copied it from
     assert new_network_encrypted_data == network_encrypted_data
-    tx_receipt = save_network_encrypted_to_user_encrypted_in_contract(deployed_contract, tx_params)
+    tx_receipt = save_network_encrypted_to_user_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
     # assert that it failed to save network encrypted data into user encrypted data, that was actually copied from
     # another contract, hence, keeping different contracts secured
     assert tx_receipt.status == 0
@@ -316,35 +332,32 @@ def make_sure_data_is_safe(eoa, web3, deployed_contract, tx_params):
 
 # create another EOA and do the same computation method demonstrating the capability to use the same contract method
 # just with different account and having the correct result back encrypted and decrypted with the other EOA
-def compute_add_with_different_account(eoa_private_key, gas_limit, gas_price_gwei, web3, deployed_contract, result):
-    alice_decrypted_aes_key, alice_eoa, alice_tx_params = create_another_account(eoa_private_key, gas_limit,
-                                                                                 gas_price_gwei, web3)
-    basic_add_computation(deployed_contract, alice_tx_params, alice_eoa, alice_decrypted_aes_key, result)
+def compute_add_with_different_account(web3, eoa, gas_limit, gas_price_gwei, deployed_contract, result):
+    alice_eoa, alice_tx_params = create_another_account(web3, eoa, gas_limit,
+                                                                                 gas_price_gwei)
+    basic_add_computation(web3, alice_eoa, deployed_contract, alice_tx_params, result)
 
 
 # create another EOA account, fund it and onboard it so that you could have the aes key of it
-def create_another_account(eoa_private_key, gas_limit, gas_price_gwei, web3):
+def create_another_account(web3, eoa, gas_limit, gas_price_gwei):
     alice_eoa = Account.create()
-    tx_receipt = transfer_native(web3, alice_eoa.address, eoa_private_key, 0.5, gas_limit)
+    tx_receipt = transfer_native(web3, eoa, alice_eoa.address, 0.5, gas_limit)
     print(tx_receipt)
-    alice_private_key = alice_eoa._private_key.hex()[2:]
-    alice_web3 = init_web3(get_node_https_address(), alice_eoa)
-    onboard_deployed_contract = get_contract(alice_web3, testnet_onboard_contract['abi'],
-                                             testnet_onboard_contract['bytecode'],
-                                             testnet_onboard_contract['address'])
-    alice_tx_params = {'web3': alice_web3, 'gas_limit': gas_limit, 'gas_price_gwei': gas_price_gwei,
-                       'eoa_private_key': alice_private_key}
-    alice_decrypted_aes_key = onboard_for_aes_key(onboard_deployed_contract, alice_private_key, alice_tx_params)
-    return alice_decrypted_aes_key, alice_eoa, alice_tx_params
+
+    generate_or_recover_aes(web3, alice_eoa)
+
+    alice_tx_params = {'gas_limit': gas_limit, 'gas_price_gwei': gas_price_gwei}
+    
+    return alice_eoa, alice_tx_params
 
 
-def basic_add_computation(deployed_contract, tx_params, eoa, account_hex_encryption_key, sum_result):
+def basic_add_computation(web3, eoa, deployed_contract, tx_params, sum_result):
     kwargs = {}
-    tx_receipt = add_one_encrypted_value_with_another_on_chain(deployed_contract, kwargs, tx_params)
+    tx_receipt = add_one_encrypted_value_with_another_on_chain(web3, eoa, deployed_contract, kwargs, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
     user_encrypted_arithmetic_result = get_user_arithmetic_result(deployed_contract, eoa)
-    user_decrypted_arithmetic_result = decrypt_uint(user_encrypted_arithmetic_result, account_hex_encryption_key)
+    user_decrypted_arithmetic_result = eoa.decrypt_value(user_encrypted_arithmetic_result)
     assert sum_result == user_decrypted_arithmetic_result
 
 
@@ -352,17 +365,14 @@ def basic_add_computation(deployed_contract, tx_params, eoa, account_hex_encrypt
 # flow: sending tx, asserting value was sent encrypted by data recorded in the block
 # receiving back encrypted value via func and event log, asserting that they are the same
 # decrypting value and asserting it is as the clear value
-def basic_encrypted_encrypt_decrypt(account_hex_encryption_key, deployed_contract, eoa,
-                                    hex_account_private_key, tx_params):
+def basic_encrypted_encrypt_decrypt(web3, eoa, deployed_contract, tx_params):
     tx_receipt, user_some_value_clear, input_text = \
-        save_input_text_network_encrypted_in_contract(deployed_contract, account_hex_encryption_key, eoa,
-                                                      hex_account_private_key, tx_params)
+        save_input_text_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
-    validate_block_has_tx_input_encrypted_value(tx_params, tx_receipt, user_some_value_clear,
-                                                account_hex_encryption_key, input_text)
+    validate_block_has_tx_input_encrypted_value(web3, eoa, tx_params, tx_receipt, user_some_value_clear, input_text)
     kwargs = {}
-    tx_receipt = save_network_encrypted_to_user_encrypted_input_in_contract(deployed_contract, kwargs, tx_params)
+    tx_receipt = save_network_encrypted_to_user_encrypted_input_in_contract(web3, eoa, deployed_contract, kwargs, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
     user_cipher_text_from_block = tx_receipt.logs[0].data
@@ -370,7 +380,7 @@ def basic_encrypted_encrypt_decrypt(account_hex_encryption_key, deployed_contrac
     user_cipher_text_from_contract = get_user_value_encrypted_input(deployed_contract, eoa)
     # assert that same value back from view func is one back from event
     assert user_cipher_text_from_block_int_value == user_cipher_text_from_contract
-    user_cipher_text_decrypted = decrypt_uint(user_cipher_text_from_contract, account_hex_encryption_key)
+    user_cipher_text_decrypted = eoa.decrypt_value(user_cipher_text_from_contract)
     # assert that value saved encrypted within the network is one sent
     assert user_cipher_text_decrypted == user_some_value_clear
     return user_cipher_text_decrypted
@@ -380,17 +390,15 @@ def basic_encrypted_encrypt_decrypt(account_hex_encryption_key, deployed_contrac
 # flow: sending tx, asserting value was sent encrypted by data recorded in the block
 # receiving back encrypted value via func and event log, asserting that they are the same
 # decrypting value and asserting it is as the clear value
-def basic_string_encrypt_decrypt(account_hex_encryption_key, deployed_contract, eoa,
-                                 hex_account_private_key, tx_params):
+def basic_string_encrypt_decrypt(web3, eoa, deployed_contract, tx_params):
     tx_receipt, user_some_value_clear, input_text = \
-        save_string_input_text_network_encrypted_in_contract(deployed_contract, account_hex_encryption_key, eoa,
-                                                             hex_account_private_key, tx_params)
+        save_string_input_text_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
-    validate_block_has_tx_string_input_encrypted_value(tx_params, tx_receipt, user_some_value_clear,
-                                                       account_hex_encryption_key, input_text, deployed_contract)
+    validate_block_has_tx_string_input_encrypted_value(web3, eoa, tx_params, tx_receipt,
+                                                       user_some_value_clear, input_text, deployed_contract)
     kwargs = {}
-    tx_receipt = save_network_encrypted_to_user_encrypted_input_string_in_contract(deployed_contract, kwargs, tx_params)
+    tx_receipt = save_network_encrypted_to_user_encrypted_input_string_in_contract(web3, eoa, deployed_contract, kwargs, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
 
@@ -399,13 +407,11 @@ def basic_string_encrypt_decrypt(account_hex_encryption_key, deployed_contract, 
             'args'].ctUserSomeEncryptedStringValue
     user_cipher_string_text_from_contract = get_user_string_value_encrypted_input(deployed_contract, eoa)
 
-    validate_block_event_against_user_encrypted_string(account_hex_encryption_key,
-                                                       user_cipher_string_text_from_contract,
+    validate_block_event_against_user_encrypted_string(eoa, user_cipher_string_text_from_contract,
                                                        user_encrypted_strings_from_event, user_some_value_clear)
 
 
-def validate_block_event_against_user_encrypted_string(account_hex_encryption_key,
-                                                       user_cipher_string_text_from_contract,
+def validate_block_event_against_user_encrypted_string(eoa, user_cipher_string_text_from_contract,
                                                        user_encrypted_strings_from_event, user_some_value_clear):
     
     print(user_cipher_string_text_from_contract)
@@ -416,8 +422,8 @@ def validate_block_event_against_user_encrypted_string(account_hex_encryption_ke
                                                      user_cipher_string_text_from_contract[0]):
         assert item_from_event == item_from_get_method
 
-    user_cipher_text_decrypted = decrypt_string(user_encrypted_strings_from_event, account_hex_encryption_key)
-    user_decrypt_string_from_contract = decrypt_string(user_cipher_string_text_from_contract, account_hex_encryption_key)
+    user_cipher_text_decrypted = eoa.decrypt_value(user_encrypted_strings_from_event)
+    user_decrypt_string_from_contract = eoa.decrypt_value(user_cipher_string_text_from_contract)
 
     assert user_cipher_text_decrypted == user_some_value_clear
     assert user_decrypt_string_from_contract == user_some_value_clear
@@ -426,63 +432,58 @@ def validate_block_event_against_user_encrypted_string(account_hex_encryption_ke
 # flow: sending tx, asserting value was sent clear by data recorded in the block
 # receiving back encrypted value via func and event log, asserting that they are the same
 # decrypting value and asserting it is as the clear value
-def basic_clear_encrypt_decrypt(account_hex_encryption_key, deployed_contract, eoa, tx_params):
-    user_some_value_clear, tx_receipt = save_clear_value_network_encrypted_in_contract(deployed_contract, tx_params)
-    validate_block_has_tx_input_clear_value(tx_params, tx_receipt, user_some_value_clear)
-    tx_receipt = save_network_encrypted_to_user_encrypted_in_contract(deployed_contract, tx_params)
+def basic_clear_encrypt_decrypt(web3, eoa, deployed_contract, tx_params):
+    user_some_value_clear, tx_receipt = save_clear_value_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
+    validate_block_has_tx_input_clear_value(web3, tx_params, tx_receipt, user_some_value_clear)
+    tx_receipt = save_network_encrypted_to_user_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
     user_encrypted_value_from_block = tx_receipt.logs[0].data
     user_encrypted_value_from_block_int_value = int(user_encrypted_value_from_block.hex(), 16)
     user_encrypted_value_from_contract = get_user_encrypted_from_contract(deployed_contract, eoa)
     # assert that same value back from view func is one back from event
     assert user_encrypted_value_from_block_int_value == user_encrypted_value_from_contract
-    user_some_value_decrypted = decrypt_uint(user_encrypted_value_from_contract, account_hex_encryption_key)
+    user_some_value_decrypted = eoa.decrypt_value(user_encrypted_value_from_contract)
     # assert that value saved encrypted within the network is one sent
     assert user_some_value_decrypted == user_some_value_clear
     return user_some_value_decrypted
 
 
-def save_network_encrypted_to_user_encrypted_in_contract(deployed_contract, tx_params):
+def save_network_encrypted_to_user_encrypted_in_contract(web3, eoa, deployed_contract, tx_params):
     kwargs = {}
-    tx_receipt = setUserSomeEncryptedValue(deployed_contract, kwargs, tx_params)
+    tx_receipt = setUserSomeEncryptedValue(web3, eoa, deployed_contract, kwargs, tx_params)
     print(tx_receipt)
     return tx_receipt
 
 
 # asserting that if trying to decrypt value back that was encrypted by user key can't be
 # deciphered by another key
-def basic_decryption_failure(some_other_account_hex_encryption_key, deployed_contract, eoa, tx_params):
-    user_some_value_clear, _ = save_clear_value_network_encrypted_in_contract(deployed_contract, tx_params)
+def basic_decryption_failure(web3, eoa, deployed_contract, tx_params):
+    user_some_value_clear, _ = save_clear_value_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
     user_some_value_encrypted = get_user_encrypted_from_contract(deployed_contract, eoa)
-    user_some_value_decrypted = decrypt_uint(user_some_value_encrypted, some_other_account_hex_encryption_key)
+    user_some_value_decrypted = eoa.decrypt_value(user_some_value_encrypted)
     # assert that value back cant be decrypted by some other key
     assert user_some_value_decrypted != user_some_value_clear
 
 
 # asserting that if trying to decrypt the value saved with network key with user key, it will fail
-def network_decryption_failure(account_hex_encryption_key, deployed_contract, eoa, tx_params):
-    user_some_value_clear, _ = save_clear_value_network_encrypted_in_contract(deployed_contract, tx_params)
+def network_decryption_failure(web3, eoa, deployed_contract, tx_params):
+    user_some_value_clear, _ = save_clear_value_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params)
     network_some_value_encrypted = get_network_value(deployed_contract, eoa)
-    network_some_value_decrypted = decrypt_uint(network_some_value_encrypted, account_hex_encryption_key)
+    network_some_value_decrypted = eoa.decrypt_value(network_some_value_encrypted)
     # assert that network encrypted value cant be decrypted by user key
     assert network_some_value_decrypted != user_some_value_clear
 
 
-def save_input_text_network_encrypted_in_contract(deployed_contract, account_hex_encryption_key, eoa,
-                                                  hex_account_private_key, tx_params):
+def save_input_text_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params):
     clear_input = 8
     kwargs = { 'itValue': (clear_input, bytes(65)) }
     func_selector = deployed_contract.functions.setSomeEncryptedValueEncryptedInput(**kwargs).selector
-    eoa_private_key = tx_params['eoa_private_key']
-    hex_account_private_key = bytes.fromhex(eoa_private_key)
-    input_text = build_input_text(clear_input, account_hex_encryption_key, eoa, deployed_contract, func_selector,
-                                             hex_account_private_key)
+    input_text = eoa.encrypt_value(clear_input, deployed_contract.address, func_selector)
     kwargs['itValue'] = input_text
     func = deployed_contract.functions.setSomeEncryptedValueEncryptedInput(**kwargs)
-    return exec_func_via_transaction(func, tx_params), clear_input, input_text
+    return exec_func_via_transaction(web3, eoa, func, tx_params), clear_input, input_text
 
 
-def save_string_input_text_network_encrypted_in_contract(deployed_contract, account_hex_encryption_key, eoa,
-                                                         hex_account_private_key, tx_params):
+def save_string_input_text_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params):
     clear_input = "test string"
     encoded_clear_input = bytearray(list(clear_input.encode('utf-8')))
     _itCiphertext = [123 for _ in range(ceil(len(encoded_clear_input) / 8))]
@@ -491,60 +492,56 @@ def save_string_input_text_network_encrypted_in_contract(deployed_contract, acco
         'itValue': ((_itCiphertext,), _itSignature)
     }
     func_selector = deployed_contract.functions.setSomeEncryptedStringEncryptedInput(**kwargs).selector
-    eoa_private_key = tx_params['eoa_private_key']
-    hex_account_private_key = bytes.fromhex(eoa_private_key)
-    input_text = build_string_input_text(clear_input, account_hex_encryption_key, eoa, deployed_contract, func_selector,
-                                         hex_account_private_key)
+    input_text = eoa.encrypt_value(clear_input, deployed_contract.address, func_selector)
 
     kwargs['itValue'] = input_text
     func = deployed_contract.functions.setSomeEncryptedStringEncryptedInput(**kwargs)
-    return exec_func_via_transaction(func, tx_params), clear_input, input_text
+    return exec_func_via_transaction(web3, eoa, func, tx_params), clear_input, input_text
 
 
-def save_clear_value_network_encrypted_in_contract(deployed_contract, tx_params):
+def save_clear_value_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params):
     user_some_value_clear = 7
     kwargs = {'_value': user_some_value_clear}
-    tx_receipt = setSomeEncryptedValue(deployed_contract, kwargs, tx_params)
+    tx_receipt = setSomeEncryptedValue(web3, eoa, deployed_contract, kwargs, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
     return user_some_value_clear, tx_receipt
 
 
-def save_network_encrypted_in_contract(deployed_contract, tx_params, value):
+def save_network_encrypted_in_contract(web3, eoa, deployed_contract, tx_params, value):
     kwargs = {'networkEncrypted': value}
-    tx_receipt = setNetworkSomeEncryptedValue(deployed_contract, kwargs, tx_params)
+    tx_receipt = setNetworkSomeEncryptedValue(web3, eoa, deployed_contract, kwargs, tx_params)
     print(tx_receipt)
     make_sure_tx_didnt_fail(tx_receipt)
 
 
-def validate_block_has_tx_input_clear_value(tx_params, tx_receipt, user_some_value_clear):
-    tx_from_block = tx_params['web3'].eth.get_transaction_by_block(tx_receipt['blockHash'],
-                                                                   tx_receipt['transactionIndex'])
+def validate_block_has_tx_input_clear_value(web3, tx_params, tx_receipt, user_some_value_clear):
+    tx_from_block = web3.eth.get_transaction_by_block(tx_receipt['blockHash'], tx_receipt['transactionIndex'])
+
     print(tx_from_block)
     user_some_value_clear_from_tx = tx_from_block['input'].hex()[10:]
     assert int(user_some_value_clear_from_tx) == user_some_value_clear
 
 
-def validate_block_has_tx_input_encrypted_value(tx_params, tx_receipt, user_some_value_clear,
-                                                account_hex_encryption_key, input_text):
-    tx_from_block = tx_params['web3'].eth.get_transaction_by_block(tx_receipt['blockHash'],
+def validate_block_has_tx_input_encrypted_value(web3, eoa, tx_params, tx_receipt, user_some_value_clear, input_text):
+    tx_from_block = web3.eth.get_transaction_by_block(tx_receipt['blockHash'],
                                                                    tx_receipt['transactionIndex'])
     print(tx_from_block)
 
-    input_text_from_tx = decode(['(uint256,bytes)'], bytes.fromhex(tx_from_block['input'].hex()[10:]))[0][0]
+    input_text_from_tx = decode(['(uint256,bytes)'], decode_hex(tx_from_block['input'].to_0x_hex())[4:])[0][0]
 
     # assert that value encrypted locally was saved in block
     assert input_text['ciphertext'] == input_text_from_tx
     # assert that value saved in block is not clear
     assert str(input_text_from_tx) != str(user_some_value_clear)
-    decrypted_input_from_tx = decrypt_uint(int(input_text_from_tx), account_hex_encryption_key)
+    decrypted_input_from_tx = eoa.decrypt_value(int(input_text_from_tx))
     # assert that value saved in block is as clear after decryption
     assert int(decrypted_input_from_tx) == user_some_value_clear
 
 
-def validate_block_has_tx_string_input_encrypted_value(tx_params, tx_receipt, user_some_value_clear,
-                                                       account_hex_encryption_key, input_text, contract):
-    tx_from_block = tx_params['web3'].eth.get_transaction_by_block(tx_receipt['blockHash'],
+def validate_block_has_tx_string_input_encrypted_value(web3, eoa, tx_params, tx_receipt,
+                                                       user_some_value_clear, input_text, contract):
+    tx_from_block = web3.eth.get_transaction_by_block(tx_receipt['blockHash'],
                                                                    tx_receipt['transactionIndex'])
     print(tx_from_block)
     tx_inputs = contract.decode_function_input(tx_from_block['input'].hex())
@@ -554,7 +551,7 @@ def validate_block_has_tx_string_input_encrypted_value(tx_params, tx_receipt, us
         assert input_text == input_text_from_tx
 
     # Decode the bytes to a string
-    string_from_input_tx = decrypt_string(tx_inputs[1]['itValue']['ciphertext'], account_hex_encryption_key)
+    string_from_input_tx = eoa.decrypt_value(tx_inputs[1]['itValue']['ciphertext'])
 
     # assert that value saved in block is as clear after decryption
     assert string_from_input_tx == user_some_value_clear
@@ -589,49 +586,49 @@ def basic_get_value(deployed_contract, eoa, web3):
     assert index_0_at_storage == 5
 
 
-def setUserSomeEncryptedValue(deployed_contract, kwargs, tx_params):
+def setUserSomeEncryptedValue(web3, eoa, deployed_contract, kwargs, tx_params):
     func = deployed_contract.functions.setUserSomeEncryptedValue(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+    return exec_func_via_transaction(web3, eoa, func, tx_params)
 
 
-def setNetworkSomeEncryptedValue(deployed_contract, kwargs, tx_params):
+def setNetworkSomeEncryptedValue(web3, eoa, deployed_contract, kwargs, tx_params):
     func = deployed_contract.functions.setNetworkSomeEncryptedValue(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+    return exec_func_via_transaction(web3, eoa, func, tx_params)
 
 
-def save_network_encrypted_to_user_encrypted_input_in_contract(deployed_contract, kwargs, tx_params):
+def save_network_encrypted_to_user_encrypted_input_in_contract(web3, eoa, deployed_contract, kwargs, tx_params):
     func = deployed_contract.functions.setUserSomeEncryptedValueEncryptedInput(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+    return exec_func_via_transaction(web3, eoa, func, tx_params)
 
 
-def save_network_encrypted_to_user_encrypted_input_string_in_contract(deployed_contract, kwargs, tx_params):
+def save_network_encrypted_to_user_encrypted_input_string_in_contract(web3, eoa, deployed_contract, kwargs, tx_params):
     func = deployed_contract.functions.setUserSomeEncryptedStringEncryptedInput(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+    return exec_func_via_transaction(web3, eoa, func, tx_params)
 
 
-def setSomeEncryptedValue(deployed_contract, kwargs, tx_params):
+def setSomeEncryptedValue(web3, eoa, deployed_contract, kwargs, tx_params):
     func = deployed_contract.functions.setSomeEncryptedValue(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+    return exec_func_via_transaction(web3, eoa, func, tx_params)
 
 
-def someEncryptedValueOf(deployed_contract, kwargs, tx_params):
-    func = deployed_contract.functions.someEncryptedValueOf(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+# def someEncryptedValueOf(deployed_contract, kwargs, tx_params):
+#     func = deployed_contract.functions.someEncryptedValueOf(**kwargs)
+#     return exec_func_via_transaction(func, tx_params)
 
 
-def add_one_encrypted_value_with_another_on_chain(deployed_contract, kwargs, tx_params):
+def add_one_encrypted_value_with_another_on_chain(web3, eoa, deployed_contract, kwargs, tx_params):
     func = deployed_contract.functions.add(**kwargs)
-    return exec_func_via_transaction(func, tx_params)
+    return exec_func_via_transaction(web3, eoa, func, tx_params)
 
 
 def init():
     load_dotenv()  # loading .env
     eoa_private_key = get_account_private_key()  # Get EOA Private key for execution
-    account_hex_encryption_key = get_hex_account_encryption_key()  # Get Hex key used to encrypt on network
-    eoa = get_eoa(eoa_private_key)  # Get EOA
-    web3 = init_web3(get_node_https_address(), eoa)  # Init connection to node
-    validate_minimum_balance(web3)  # validate minimum balance
-    return account_hex_encryption_key, eoa, eoa_private_key, web3
+    account_encryption_key = get_account_encryption_key()  # Get Hex key used to encrypt on network
+    eoa = Account.from_key(eoa_private_key, { 'aes_key': account_encryption_key })  # Get EOA
+    web3 = init_web3(CotiNetwork.TESTNET)  # Init connection to node
+    validate_minimum_balance(web3, eoa.address)  # validate minimum balance
+    return eoa, web3
 
 
 def deploy(web3: Web3, eoa: Account, tx_params):
@@ -651,7 +648,7 @@ def deploy(web3: Web3, eoa: Account, tx_params):
 
     signed_tx = web3.eth.account.sign_transaction(tx, eoa._private_key)
 
-    tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
 
     tx_receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
 
