@@ -9,7 +9,7 @@ certifi==2024.8.30
 cffi==1.17.1
 charset-normalizer==3.4.0
 ckzg==2.0.1
-coti-sdk==1.0.4
+coti-sdk==1.0.5
 cryptography==3.4.8
 cytoolz==1.0.0
 eth-account==0.13.4
