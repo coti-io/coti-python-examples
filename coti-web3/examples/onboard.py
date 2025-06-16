@@ -18,6 +18,7 @@ def main():
 
     generate_or_recover_aes(web3, eoa)
     env_value = set_account_encryption_key(eoa.aes_key)
+    print("Generated AES key for EOA: %s" % eoa.address)
 
     if env_value[0] is not True:
         raise Exception('encryption key not saved in .env!')
